@@ -74,7 +74,7 @@ ynh_app_setting_set "$app" mysqlpwd "$db_pass"
 
 final_path=/var/www/$app
 ynh_app_setting_set $app final_path $final_path
-SETUP_SOURCE	# Télécharge la source, décompresse et copie dans $final_path
+sudo mkdir -p $final_path
 
 #=================================================
 # PHP-FPM CONFIGURATION
@@ -98,16 +98,24 @@ sudo mv ../conf/config.yml $final_path/conf/config.yml
 # Installation : Get Composer:
 #=================================================
 
-pushd $final_path
+sudo mkdir -p /opt/composer/
+pushd /opt/composer/
 sudo php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
 sudo php -r "if (hash_file('SHA384', 'composer-setup.php') === '669656bab3166a7aff8a7506b8cb2d1c292f042046c5a994c43155c0be6190fa0355160742ab2e1c88d40d5be660b410') { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;"
 sudo php composer-setup.php
 sudo php -r "unlink('composer-setup.php');"
-sudo ./composer.phar install --no-dev -o;
+popd
+pushd /tmp
+sudo /opt/composer/composer.phar create-project roadiz/standard-edition
+popd
+sudo mv /tmp/standard-edition $final_path
+sudo rm -rf /tmp/standard-edition
+pushd $final_path
 # Create database schema
 sudo ./bin/roadiz orm:schema-tool:create -n
 # Install base fixtures
 sudo ./bin/roadiz install -n
+sudo ./bin/roadiz themes:generate FooBar
 # Install DefaultTheme
 sudo ./bin/roadiz themes:install -n "/Themes/DefaultTheme/DefaultThemeApp"
 # Install DefaultTheme node-type, settings and tags
