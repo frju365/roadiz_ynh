@@ -68,13 +68,15 @@ ynh_app_setting_set "$app" db_name "$db_name"
 ynh_app_setting_set "$app" db_pass "$db_pass"
 ynh_app_setting_set "$app" db_user "$db_user"
 ynh_app_setting_set "$app" mysqlpwd "$db_pass"
+
 #=================================================
-# DOWNLOAD, CHECK AND UNPACK SOURCE
+# CHECK
 #=================================================
 
-final_path=/var/www/$app
+www_path=/var/www
+ynh_app_setting_set $app www_path $www_path
+final_path=$www_path/$app
 ynh_app_setting_set $app final_path $final_path
-sudo mkdir -p $final_path
 
 #=================================================
 # PHP-FPM CONFIGURATION
@@ -83,28 +85,62 @@ sudo mkdir -p $final_path
 POOL_FPM
 
 #=================================================
+# Set up tmp folder for installation
+#=================================================
+
+tmp=/tmp/roadizi
+sudo rm -rf $tmp
+sudo mkdir -p $tmp
+sudo chown -R www-data:www-data $tmp
+sudo chmod -R 755 $tmp
+
+
+#=================================================
+# Prepare composer and cache directories
+#=================================================
+
+compo=/opt/${app}_composer
+sudo mkdir -p $compo/cache
+sudo chown -R www-data:www-data $compo
+sudo chmod -R 755 $compo
+
+#=================================================
 # SPECIFIC SETUP
 #=================================================
 # Installation : Get Composer:
 #=================================================
 
-sudo mkdir -p /opt/composer/
-pushd /opt/composer/
-sudo php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
-sudo php -r "if (hash_file('SHA384', 'composer-setup.php') === '669656bab3166a7aff8a7506b8cb2d1c292f042046c5a994c43155c0be6190fa0355160742ab2e1c88d40d5be660b410') { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;"
-sudo php composer-setup.php
-sudo php -r "unlink('composer-setup.php');"
-popd
+ EXPECTED_SIGNATURE=$(wget https://composer.github.io/installer.sig -O - -q)
+ sudo php -r "copy('https://getcomposer.org/installer', '$compo/composer-setup.php');"
+ ACTUAL_SIGNATURE=$(php -r "echo hash_file('SHA384', '$compo/composer-setup.php');")
+ if [ "$EXPECTED_SIGNATURE" = "$ACTUAL_SIGNATURE" ]
+  then
+#      sudo grep -q -F 'env[COMPOSER_HOME]= $compo' /etc/php5/fpm/pool.d/${app}.conf || sudo echo 'env[COMPOSER_HOME]= /opt/flarum_c$
+#      sudo service php5-fpm reload
+#       echo "php reload"
+      sudo php $compo/composer-setup.php --install-dir=$compo --filename=composer
+#      sudo mv /opt/flarum_composer/composer /usr/local/bin
+#      sudo chown root:root /usr/local/bin/composer
+      RESULT=$?
+  else
+      >&2 echo 'ERROR: Invalid installer signature'
+      RESULT=1
+ fi
+ if [ $RESULT != 0 ]
+  then
+    ynh_die
+ fi
 
 #=================================================
 # Installation : Install of Roadiz with composer
 #=================================================
 
-pushd /tmp
-sudo /opt/composer/composer.phar create-project roadiz/standard-edition
-popd
-sudo mv /tmp/standard-edition $final_path
-sudo rm -rf /tmp/standard-edition
+cwd=$(pwd)
+sudo su - www-data -s /bin/bash -c "mkdir -p $tmp/$app && cd $tmp/$app && php -d memory_limit=-1 /opt/${app}_composer/composer create-project roadiz/standard-edition ."
+sudo cp -Rf $tmp/$app $www_path/
+sudo chown -R www-data:www-data $final_path
+cd $cwd
+sudo rm -rf $tmp
 
 #=================================================
 # Modify the config.yml
